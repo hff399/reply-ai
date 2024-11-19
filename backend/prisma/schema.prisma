@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // or your preferred database
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                Int             @id @default(autoincrement())
+  name              String          @unique
+  password          String          // Encrypted password
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model BotPreferences {
+  id                Int             @id @default(autoincrement())
+  isOn              Boolean         @default(true)   // Global bot on/off toggle
+  generalPrompt     String          @default("")     // Default prompt for the bot
+  responseDelay     Int             @default(5000)   // Default delay before responding
+
+  // New fields for OpenAI settings
+  openAiMaxTokens   Int             @default(100)    // Maximum tokens for OpenAI responses
+  openAiTemperature Float           @default(0.7)    // Temperature for OpenAI responses
+
+  analyzeImages      Boolean  @default(false) // Flag to enable/disable image analysis
+  analyzeVoices      Boolean  @default(false) // Flag to enable/disable audio analysis
+
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relation to ChatSettings
+  chatSettings      ChatSettings[]  @relation("BotPreferencesToChatSettings")
+}
+
+model ChatSettings {
+  id                Int             @id @default(autoincrement())
+  chatId            String          @unique // Unique identifier for each chat
+  botPreferencesId  Int?            // Reference to the BotPreferences model (optional if some chats have custom settings)
+  customPrompt      String?         // Specific prompt for this chat (overrides general prompt if set)
+  isAutoReplyOn     Boolean         @default(false)   // Is auto-reply enabled for this chat
+  responseDelay     Int?            // Custom response delay for this chat
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relations
+  botPreferences    BotPreferences? @relation("BotPreferencesToChatSettings", fields: [botPreferencesId], references: [id])
+}
+
+model Analytics {
+  id                Int      @id @default(autoincrement())
+  chatId            String   // ID of the specific chat (linked to ChatSettings)
+  messageId         String   // Unique message ID
+  userMessage       String?  // Message text received from the user
+  botResponse       String?  // Message text sent by the bot
+  messageReceivedAt DateTime // Timestamp when the message was received
+  responseSentAt    DateTime? // Timestamp when the response was sent (null if no response)
+  responseTime      Int?     // Response time in milliseconds (null if no response)
+  createdAt         DateTime @default(now())
+
+  // Additional indexes for fast analytics queries
+  @@index([chatId, messageReceivedAt])
+  @@index([messageReceivedAt])
+}
