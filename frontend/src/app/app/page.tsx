@@ -3,8 +3,10 @@
 import React from 'react';
 
 import {
+  AlignJustify,
   MessageCircle,
   ShieldCheck,
+  TrashIcon,
 } from 'lucide-react';
 
 import {
@@ -170,98 +172,17 @@ const App = () => {
 
       {/* Card 5 */}
       <TelegramCard />
+      <SessionsList></SessionsList>
     </div>
   );
 };
 
 import { useState, useEffect } from 'react';
-import ky from 'ky'; // Import ky for HTTP requests
 import { Skeleton } from '@/components/ui/skeleton';
 import kyClient from '@/lib/ky';
-import getCookie from '@/lib/cookie';
+import { Button } from '@/components/ui/button';
 
 
-
-// Component for displaying the Telegram authorization status
-const TelegramCardContent = () => {
-  const [isVerified, setIsVerified] = useState(false); // Holds the verification status
-  const [isLoading, setIsLoading] = useState(true); // Loading state
-
-  useEffect(() => {
-    if (document) {
-      const phone = getCookie('phone');
-      if (phone) {
-        console.log('Phone:', phone);
-      } else {
-        console.error('Phone cookie not found');
-      }
-      // Example API call to check if the Telegram account is verified
-      const checkVerificationStatus = async () => {
-        try {
-        const response = await ky
-          .post('http://localhost:3001/api/telegram/auth/session-status', {
-            json: { phone },
-          })
-          .json(); // Replace with your backend endpoint
-          
-          // Assert the response type to have the shape { valid: boolean }
-          const typedResponse = response as { valid: boolean };
-          
-          console.log(typedResponse);
-          if (typedResponse.valid) {
-            console.log('ldkfsjkdf');
-            setIsVerified(true);
-          }
-        } catch (error) {
-          console.error('Error checking verification status:', error);
-        } finally {
-          setIsLoading(false);
-        }
-        
-      }
-      checkVerificationStatus();
-    } else {
-      return
-    };
-  
-  }, []);
-  return (
-    <div>
-      {isLoading ? (
-        <div className='w-full h-full flex items-center justify-center'>
-          <svg
-            xmlns='http://www.w3.org/2000/svg'
-            width='24'
-            height='24'
-            viewBox='0 0 24 24'
-            fill='none'
-            stroke='currentColor'
-            strokeWidth='2'
-            strokeLinecap='round'
-            strokeLinejoin='round'
-            className={'animate-spin text-border'}
-          >
-            <path d='M21 12a9 9 0 1 1-6.219-8.56' />
-          </svg>
-        </div>
-      ) : isVerified ? (
-        <div className='flex flex-col items-center gap-4 mb-8'>
-          <div className='relative animate-blur-in'>
-            <ShieldCheck className=' text-green-500' size={160} />
-            <ShieldCheck
-              className=' absolute text-green-300 blur-md top-0 left-0'
-              size={160}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className='flex items-center gap-2'>
-          <TelegramAuth />
-        </div>
-      )}
-    </div>
-  );
-};
 
 const TelegramCard = () => {
   return (
@@ -277,10 +198,87 @@ const TelegramCard = () => {
         <CardDescription>Telegram Account Session</CardDescription>
       </CardHeader>
       <CardContent className='flex-1 pb-0'>
-        <TelegramCardContent />
+        <TelegramAuth />
       </CardContent>
     </Card>
   );
 };
+
+
+
+const SessionsList = () => {
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+      const fetchSessions = async () => {
+          try {
+              const response = await kyClient.get('telegram/sessions').json();
+              setSessions((response as []));
+          } catch (err) {
+              console.error('Failed to fetch sessions:', err);
+              // @ts-ignore
+              setError('Failed to load sessions.');
+          } finally {
+              setLoading(false);
+          }
+      };
+
+      fetchSessions();
+  }, []);
+
+
+  const removeSession = async (userId: any, phoneNumber: any) => {
+    try {
+        await kyClient.post('telegram/remove-session', {
+            json: { userId, phoneNumber },
+        });
+        // @ts-ignore
+        setSessions(sessions.filter(session => session.userId !== userId || session.phoneNumber !== phoneNumber));
+    } catch (err) {
+        console.error('Failed to remove session:', err);
+    }
+  };
+
+  if (loading) return <p>Loading sessions...</p>;
+  if (error) return <p>{error}</p>;
+
+  return (
+    <Card className='w-full min-h-[384px] h-full flex flex-col'>
+      <div className='items-center gap-2 relative z-20 flex justify-start border-b px-3 py-2.5 text-card-foreground'>
+        <div className='flex items-center gap-1.5 pl-1 text-[13px] text-muted-foreground [&>svg]:h-[0.9rem] [&>svg]:w-[0.9rem]'>
+          <AlignJustify className='text-green-700' />
+          Sessions List
+        </div>
+      </div>
+      <CardContent className='flex-1 pb-0'>
+      {sessions.length > 0 ? (
+              <ul className='pt-4 flex flex-col gap-y-4 overflow-y-scroll h-full no-scrollbar'>
+                  {sessions.map(session => (
+                      <li key={
+                        // @ts-ignore
+                        session.id
+                        }>
+                        <Card className='p-2'>
+                          {/* @ts-ignore */}
+                          <p>Phone Number: {session.phoneNumber}</p>
+                          {/* @ts-ignore */}
+                          <p>Created At: {new Date(session.createdAt).toLocaleString()}</p>
+                          {/* @ts-ignore */}
+                          <Button size="sm" variant="destructive" className='flex gap-x-1 items-center' onClick={() => removeSession(session.userId, session.phoneNumber)}>Remove Session <TrashIcon size={16}/></Button>
+                        </Card>
+                      </li>
+                  ))}
+              </ul>
+          ) : (
+              <p>No sessions available.</p>
+          )}
+      </CardContent>
+    </Card>
+  );
+};
+
+
 
 export default App;

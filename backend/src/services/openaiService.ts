@@ -55,7 +55,7 @@ export async function generateChatCompletion(
 ): Promise<string> {
   try {
     const completion = await openai.chat.completions.create({
-      model: options.model || 'gpt-4o-mini', // Default to GPT-4
+      model: options.model || 'gpt-4o', // Default to GPT-4
       messages,
       max_tokens: options.maxTokens || 150, // Default max tokens
       temperature: options.temperature || 2, // Default temperature

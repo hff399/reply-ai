@@ -42,7 +42,7 @@ async function seed() {
   // Check if the user exists, if not, create a default user
   const existingUser = await prisma.user.findFirst();
 
-  const hashedPassword = bcrypt.hash(ADMIN_PASSWORD, 10, async (err, hash) => {
+  const hashedPassword = bcrypt.hash(ADMIN_PASSWORD!, 10, async (err, hash) => {
     if (err) {
       // Handle error
       console.log(err)
@@ -66,33 +66,33 @@ async function seed() {
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(today.getDate() - 30); // Subtract 30 days from today
 
-  // Generate analytics messages for each day from today to 30 days ago
-  for (let currentDate = thirtyDaysAgo; currentDate <= today; currentDate.setDate(currentDate.getDate() + 1)) {
-    const messageCount = Math.floor(Math.random() * (100 - 10 + 1) + 10); // Between 10 and 100 messages for each day
+  // // Generate analytics messages for each day from today to 30 days ago
+  // for (let currentDate = thirtyDaysAgo; currentDate <= today; currentDate.setDate(currentDate.getDate() + 1)) {
+  //   const messageCount = Math.floor(Math.random() * (100 - 10 + 1) + 10); // Between 10 and 100 messages for each day
 
-    // Generate messages for the specific date
-    for (let i = 0; i < messageCount; i++) {
-      const messageReceivedAt = new Date(currentDate);
-      messageReceivedAt.setMilliseconds(messageReceivedAt.getMilliseconds() + i * 1000); // Space out messages 1 second apart for this day
+  //   // Generate messages for the specific date
+  //   for (let i = 0; i < messageCount; i++) {
+  //     const messageReceivedAt = new Date(currentDate);
+  //     messageReceivedAt.setMilliseconds(messageReceivedAt.getMilliseconds() + i * 1000); // Space out messages 1 second apart for this day
 
-      const responseSentAt = new Date(messageReceivedAt.getTime() + generateRandomResponseTime());
-      const responseTime = responseSentAt.getTime() - messageReceivedAt.getTime(); // Response time in ms
+  //     const responseSentAt = new Date(messageReceivedAt.getTime() + generateRandomResponseTime());
+  //     const responseTime = responseSentAt.getTime() - messageReceivedAt.getTime(); // Response time in ms
 
-      await prisma.analytics.create({
-        data: {
-          chatId: `chat_${Math.floor(Math.random() * 1000)}`, // Simulating random chat IDs
-          messageId: `msg_${Math.floor(Math.random() * 100000)}`,
-          userMessage: generateRandomMessage(),
-          botResponse: generateRandomMessage(),
-          messageReceivedAt,
-          responseSentAt,
-          responseTime,
-        },
-      });
+  //     await prisma.analytics.create({
+  //       data: {
+  //         chatId: `chat_${Math.floor(Math.random() * 1000)}`, // Simulating random chat IDs
+  //         messageId: `msg_${Math.floor(Math.random() * 100000)}`,
+  //         userMessage: generateRandomMessage(),
+  //         botResponse: generateRandomMessage(),
+  //         messageReceivedAt,
+  //         responseSentAt,
+  //         responseTime,
+  //       },
+  //     });
 
-      console.log(`Created message for date ${messageReceivedAt}`);
-    }
-  }
+  //     console.log(`Created message for date ${messageReceivedAt}`);
+  //   }
+  // }
 
   console.log('Initial data created successfully');
 }

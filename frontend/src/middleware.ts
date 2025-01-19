@@ -8,6 +8,7 @@ interface TokenVerificationResponse {
 
 interface RefreshTokenResponse {
   accessToken: string;
+  refreshToken: string
 }
 
 // Utility function to validate a token
@@ -28,7 +29,7 @@ const checkToken = async (token: string | undefined): Promise<boolean | 'backend
 };
 
 // Utility function to refresh an access token
-const refreshAccessToken = async (refreshToken: string | undefined): Promise<string | 'backend-unreachable' | null> => {
+const refreshAccessToken = async (refreshToken: string | undefined): Promise<{accessToken: string, refreshToken: string} | 'backend-unreachable' | null> => {
   if (!refreshToken) return null;
 
   try {
@@ -37,7 +38,7 @@ const refreshAccessToken = async (refreshToken: string | undefined): Promise<str
         json: { refreshToken },
       })
       .json<RefreshTokenResponse>();
-    return response.accessToken;
+    return {accessToken: response.accessToken, refreshToken: response.refreshToken};
   } catch (error) {
     console.error('Error refreshing token:', error);
     return 'backend-unreachable';
@@ -70,9 +71,9 @@ export async function middleware(req: NextRequest) {
 
   // Handle invalid tokens for protected routes
   if (tokenStatus === false && refreshToken) {
-    const newAccessToken = await refreshAccessToken(refreshToken);
-
-    if (newAccessToken === 'backend-unreachable') {
+    const newTokens = await refreshAccessToken(refreshToken);
+    
+    if (newTokens === 'backend-unreachable') {
       console.warn('Backend is unreachable during token refresh. Redirecting to "/" route.');
       if (!isPublicPath) {
         const response = NextResponse.redirect(new URL('/', req.url));
@@ -83,10 +84,14 @@ export async function middleware(req: NextRequest) {
       return NextResponse.next();
     }
 
-    if (newAccessToken) {
+    if (newTokens) {
       // Set the new access token in cookies
       const response = NextResponse.next();
-      response.cookies.set('access-token', newAccessToken, {
+      response.cookies.set('access-token', newTokens.accessToken, {
+        httpOnly: true,
+        secure: true,
+      });
+      response.cookies.set('refresh-token', newTokens.refreshToken, {
         httpOnly: true,
         secure: true,
       });

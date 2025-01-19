@@ -7,6 +7,7 @@ export interface ChatSettingsInput {
   customPrompt?: string; // Custom prompt for the chat
   isAutoReplyOn?: boolean; // Auto-reply setting
   responseDelay?: number; // Custom response delay
+  sessionId: number; // Reference to the session
 }
 
 class ChatSettingsService {
@@ -18,11 +19,12 @@ class ChatSettingsService {
    */
   static async upsertChatSettings(
     chatId: string,
+    sessionId: number,
     settings: ChatSettingsInput
   ): Promise<ChatSettings> {
     try {
       const updatedSettings = await prisma.chatSettings.upsert({
-        where: { chatId },
+        where: { chatId_sessionId: {chatId, sessionId} },
         update: {
           ...settings,
           updatedAt: new Date(),
@@ -45,10 +47,10 @@ class ChatSettingsService {
    * @param chatId - Unique identifier for the chat.
    * @returns The chat settings, or null if not found.
    */
-  static async getChatSettings(chatId: string): Promise<ChatSettings | null> {
+  static async getChatSettings(chatId: string, sessionId: number): Promise<ChatSettings | null> {
     try {
       const chatSettings = await prisma.chatSettings.findUnique({
-        where: { chatId },
+        where: { chatId_sessionId: {chatId, sessionId} },
       });
       return chatSettings;
     } catch (error) {
@@ -65,11 +67,12 @@ class ChatSettingsService {
    */
   static async updateChatSettings(
     chatId: string,
+    sessionId: number,
     settings: Partial<ChatSettingsInput>
   ): Promise<ChatSettings> {
     try {
       const updatedSettings = await prisma.chatSettings.update({
-        where: { chatId },
+        where: { chatId_sessionId: {chatId, sessionId} },
         data: {
           ...settings,
           updatedAt: new Date(),
@@ -87,10 +90,10 @@ class ChatSettingsService {
    * @param chatId - Unique identifier for the chat.
    * @returns The deleted chat settings.
    */
-  static async deleteChatSettings(chatId: string): Promise<ChatSettings> {
+  static async deleteChatSettings(chatId: string, sessionId: number): Promise<ChatSettings> {
     try {
       const deletedSettings = await prisma.chatSettings.delete({
-        where: { chatId },
+        where: { chatId_sessionId: {chatId, sessionId} },
       });
       return deletedSettings;
     } catch (error) {
@@ -119,26 +122,31 @@ class ChatSettingsService {
     }
   }
 
-
   /**
    * Merge Telegram chats with stored preferences from the database.
    * @param telegramChats - List of chats from Telegram API.
    * @returns Array of merged chat data with preferences.
    */
-  static async mergeChatsWithPreferences(telegramChats: Array<{ id: bigInt.BigInteger; name: string, lastMessage: string } | undefined>) {
+  static async mergeChatsWithPreferences(
+    telegramChats: Array<{ id: string; name: string; lastMessage: string } | undefined>
+  ) {
     try {
-      const chatIds = telegramChats.map(chat => chat!.id.toString());
+      const chatIds = telegramChats.map((chat) => chat!.id.toString());
       const preferences = await prisma.chatSettings.findMany({
         where: { chatId: { in: chatIds } },
       });
 
-      const preferencesMap = new Map(preferences.map(pref => [pref.chatId, pref]));
+      const preferencesMap = new Map(preferences.map((pref) => [pref.chatId, pref]));
 
-      return telegramChats.map(chat => ({
+      return telegramChats.map((chat) => ({
         id: chat?.id,
         name: chat?.name,
         lastMessage: chat?.lastMessage,
-        preferences: preferencesMap.get(chat!.id.toString()) || { isAutoReplyOn: false, customPrompt: null },
+        preferences:
+          preferencesMap.get(chat!.id.toString()) || {
+            isAutoReplyOn: false,
+            customPrompt: null,
+          },
       }));
     } catch (error) {
       console.error('Error in mergeChatsWithPreferences:', error);
@@ -146,12 +154,11 @@ class ChatSettingsService {
     }
   }
 
-
   /**
    * Fetch all enabled chats where isAutoReplyOn is true.
    * @returns {Promise<string[]>} List of enabled chat IDs.
    */
-  static async getEnabledChats(): Promise<string[]> {
+  static async getEnabledChats(): Promise<{chatId: string, sessionId: string}[]> {
     try {
       const enabledChats = await prisma.chatSettings.findMany({
         where: {
@@ -159,9 +166,15 @@ class ChatSettingsService {
         },
         select: {
           chatId: true, // Only fetch chatId
+          sessionId: true,
+          session: { // Include session data
+            select: {
+              sessionData: true, // Replace with the fields you need from the session table
+            },
+          },
         },
       });
-      return enabledChats.map((chat) => chat.chatId);
+      return enabledChats.map((chat) => {return {chatId: chat.chatId, sessionId: chat.session.sessionData}});
     } catch (error) {
       console.error('Failed to fetch enabled chats:', error);
       return [];

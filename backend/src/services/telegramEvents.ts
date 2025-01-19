@@ -23,18 +23,25 @@ function convertFileToBase64(filePath: string): string {
 if (!fs.existsSync(downloadDir)) {
   fs.mkdirSync(downloadDir, { recursive: true });
 }
-
-// Extend the cache to include enabled chats
+// Extend cache to include settings per sessionId and chatId
 const cache = {
   parameters: null as any,
-  enabledChats: new Array<string>(), // Use a Set for quick lookup
+  enabledChats: new Map<string, Set<string>>(), // Map<sessionId, Set<chatId>>
   lastUpdated: 0,
 };
 
-// Fetch enabled chats from DB or API
+// Fetch enabled chats grouped by sessionId
 async function fetchEnabledChats() {
-  const enabledChats = await ChatSettingsService.getEnabledChats(); // Assume this returns an array of enabled chat IDs
-  cache.enabledChats = enabledChats; // Convert IDs to string
+  const enabledChats = await ChatSettingsService.getEnabledChats(); // Returns [{ sessionId, chatId }]
+  
+
+  cache.enabledChats.clear(); // Reset cache
+  for (const { sessionId, chatId } of (enabledChats as any)) {
+    if (!cache.enabledChats.has(sessionId)) {
+      cache.enabledChats.set(sessionId, new Set());
+    }
+    cache.enabledChats.get(sessionId)?.add(chatId);
+  }
 }
 
 // Periodically refresh the cache (bot parameters + enabled chats)
@@ -149,16 +156,20 @@ async function downloadMediaAndConvertToBase64(message: any): Promise<string | n
 // Process message and handle media (audio, images)
 async function handleMessage(client: TelegramClient, event: any, myId: string) {
   const message = event.message;
-  const chatId = message.chatId;
+  const chatId = message.chatId.toString();
   const messageText = message.text;
   const messageId = message.id.toString();
+
+  const sessionId = String(client.session.save())
 
   const botParameters = await getCachedBotParameters();
   const recentMessages = await client.getMessages(chatId, { limit: 10 });
   const contextMessages = formatMessagesForContext(recentMessages, myId, botParameters.generalPrompt);
 
-  // Check if the message sender is not the bot and if the chat ID is one of the specified ones
-  if ((cache.enabledChats.includes(chatId.toString()))) {
+  // Check if the chat is enabled for the current session
+  const enabledChats = cache.enabledChats.get(sessionId) || new Set();
+
+  if (enabledChats.has(chatId)) {
     console.log('New message received:', { chatId, messageText });
 
     let hasContent = false;
@@ -191,12 +202,14 @@ async function handleMessage(client: TelegramClient, event: any, myId: string) {
     if (message.media && message.media.className == 'MessageMediaPhoto' && botParameters.analyzeImages) {
       const base64Image = await downloadMediaAndConvertToBase64(message);
 
+      
       if (base64Image) {
         console.log('Image converted to base64');
         contextMessages.push({
           role: 'user',
           content: [{ type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }], // Base64 encoded image
         });
+        console.log(contextMessages, hasContent)
         hasContent = true;
       }
     }
@@ -236,13 +249,13 @@ async function generateResponse(contextMessages: any[], botParameters: any) {
 }
 
 // Track analytics
-async function trackAnalytics(chatId: string, messageId: string, messageText: string, openAiResponse: string) {
-  await AnalyticsService.trackAnalytics(chatId.toString(), messageId, messageText || '', openAiResponse, new Date());
+async function trackAnalytics(sessionId: string, chatId: string, messageId: string, messageText: string, openAiResponse: string) {
+  await AnalyticsService.trackAnalytics(chatId, messageId, messageText || '', openAiResponse, new Date());
 }
 
 // Send message
-async function sendResponse(client: TelegramClient, chatId: string, openAiResponse: string, message: any) {
-  console.log('Sending response...');
+async function sendResponse(client: TelegramClient, sessionId: string, chatId: string, openAiResponse: string, message: any) {
+  console.log(`Sending response to session ${sessionId}, chat ${chatId}...`);
   await client.sendMessage(chatId, {
     message: openAiResponse,
     replyTo: message,
@@ -272,6 +285,8 @@ export function startListeningForMessages(client: TelegramClient) {
         // Handle message and generate context
         const contextMessages = await handleMessage(client, event, myId);
 
+        console.log(contextMessages)
+
         if (contextMessages) {
           // Generate OpenAI response
           const openAiResponse = await generateResponse(contextMessages, botParameters);
@@ -280,10 +295,10 @@ export function startListeningForMessages(client: TelegramClient) {
           await addDelay(botParameters.responseDelay);
 
           // Track and log analytics data
-          await trackAnalytics(chatId.toString(), message.id.toString(), message.text || '', openAiResponse);
+          await trackAnalytics(String(client.session), chatId.toString(), message.id.toString(), message.text || '', openAiResponse);
 
           // Send the response to the user
-          await sendResponse(client, chatId.toString(), openAiResponse, message);
+          await sendResponse(client, String(client.session), chatId.toString(), openAiResponse, message);
         } else {
           console.log('no context messages')
         }

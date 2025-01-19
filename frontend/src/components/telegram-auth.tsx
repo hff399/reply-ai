@@ -18,20 +18,11 @@ export default function TelegramAuth() {
     const [password, setPassword] = useState('');
     const [code, setCode] = useState('');
 
-    // Function to set the phone number cookie manually
-    const setPhoneCookie = (phone: string) => {
-        const expirationDate = new Date();
-        expirationDate.setDate(expirationDate.getDate() + 365); // Set cookie expiration to 7 days
-        document.cookie = `phone=${phone}; path=/; expires=${expirationDate.toUTCString()}`;
-    };
-
     const handleStartAuth = async () => {
         try {
-            // Set the phone number cookie before starting the authentication process
-            setPhoneCookie(phone);
-
+            console.log("Start auth")
             // Send phone and password to start the authentication process
-            const response = await api.post('auth/start', {
+            const response = await api.post('start', {
                 json: { phone, password },
                 timeout: 100000,
             }).json();
@@ -50,14 +41,19 @@ export default function TelegramAuth() {
 
     const handleVerifyAuth = async () => {
         try {
-            const response = await api.post('auth/verify', {
-                json: { code },
+            console.log(phone)
+            const response = await api.post('verify', {
+                json: { phone, password, code },
             }).json();
 
             // Log the response to check if the backend is responding
             console.log('Backend response on verify auth:', response);
 
             toast.success('Login successful. Redirecting...');
+
+            setStep("start")
+            setPhoneNumber("")
+            setPassword("")
         } catch (error: any) {
             console.error('Error during verify auth:', error);
             toast.error(`Error: ${error.response?.error || 'Failed to verify code'}`);

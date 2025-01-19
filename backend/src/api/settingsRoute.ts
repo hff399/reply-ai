@@ -30,34 +30,34 @@ router.put('/global', authenticateToken, async (req: AuthenticatedRequest, res: 
 });
 
 // Get chat-specific settings by chatId (protected)
-router.get('/chat/:chatId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  const { chatId } = req.params;
-  try {
-    const chatSettings = await settingsService.getChatSettings(chatId);
-    if (chatSettings) {
-      res.json(chatSettings);
-      return
-    } else {
-      res.status(404).json({ message: 'Chat settings not found' });
-      return
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch chat settings' });
-  }
-});
+// router.get('/chat/:chatId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+//   const { chatId } = req.params;
+//   try {
+//     const chatSettings = await settingsService.getChatSettings(chatId);
+//     if (chatSettings) {
+//       res.json(chatSettings);
+//       return
+//     } else {
+//       res.status(404).json({ message: 'Chat settings not found' });
+//       return
+//     }
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ error: 'Failed to fetch chat settings' });
+//   }
+// });
 
-// Update or create chat-specific settings (protected)
-router.put('/chat/:chatId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  const { chatId } = req.params;
-  try {
-    const updatedSettings = await settingsService.upsertChatSettings(chatId, req.body);
-    res.json(updatedSettings);
-    return
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to update chat settings' });
-  }
-});
+// // Update or create chat-specific settings (protected)
+// router.put('/chat/:chatId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+//   const { chatId } = req.params;
+//   try {
+//     const updatedSettings = await settingsService.upsertChatSettings(chatId, req.body);
+//     res.json(updatedSettings);
+//     return
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ error: 'Failed to update chat settings' });
+//   }
+// });
 
 export default router;

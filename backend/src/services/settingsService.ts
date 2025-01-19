@@ -23,18 +23,18 @@ export const settingsService = {
   },
 
   // Fetch chat-specific settings by chatId
-  async getChatSettings(chatId: string): Promise<ChatSettings | null> {
+  async getChatSettings(chatId: string, sessionId: number): Promise<ChatSettings | null> {
     return await prisma.chatSettings.findUnique({
-      where: { chatId },
+      where: { chatId_sessionId: {chatId, sessionId} },
     });
   },
 
   // Update or create chat-specific settings
-  async upsertChatSettings(chatId: string, data: Partial<ChatSettings>): Promise<ChatSettings> {
-    return await prisma.chatSettings.upsert({
-      where: { chatId },
-      update: data,
-      create: { ...data, chatId },
-    });
-  },
+  // async upsertChatSettings(chatId: string, data: Partial<ChatSettings>): Promise<ChatSettings> {
+  //   return await prisma.chatSettings.upsert({
+  //     where: { chatId },
+  //     update: data,
+  //     create: { ...data, chatId },
+  //   });
+  // },
 };

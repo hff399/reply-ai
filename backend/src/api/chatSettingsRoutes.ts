@@ -1,69 +1,98 @@
 import express from 'express';
 import ChatSettingsService from '../services/chatSettingsService'; // Adjust path as necessary
-import { globalClient } from '../services/telegramService';
+import { globalClients } from '../services/telegramService';
 import { Dialog } from 'telegram/tl/custom/dialog';
 import { authenticateToken } from '../middleware/authMiddleware';
+import prisma from '../utils/prismaClient';
 
 const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    const sessions = await prisma.session.findMany();
 
-    // Fetch all chats from the Telegram account
-    const dialogs = await globalClient!.getDialogs(); // Get all dialogs (chats)
+    const sessionsWithChats = await Promise.all(
+      sessions.map(async (session) => {
+        const { phoneNumber, id: sessionId } = session;
+        const client = globalClients[phoneNumber];
 
-    // Prepare the chat data to return
-    const telegramChats = dialogs.filter((dialog: Dialog) => {
-      return dialog.entity?.className == "User"
-    }).map((dialog: Dialog) => {
-      const chat = dialog.entity;
+        if (!client) {
+          return {
+            sessionId,
+            phoneNumber,
+            chats: [],
+          };
+        }
 
-      const lastMessage = dialog.message;
+        const dialogs = await client.getDialogs();
 
-      if (chat?.className == "User") { 
+        const telegramChats = dialogs
+          .filter((dialog: Dialog) => dialog.entity?.className === 'User')
+          .map((dialog: Dialog) => {
+            const chat = dialog.entity;
+            const lastMessage = dialog.message;
+
+            if (chat?.className === 'User' && chat.id) {
+              return {
+                id: chat.id.toString(),
+                name: chat.lastName
+                  ? `${chat.firstName} ${chat.lastName}`
+                  : chat.firstName || 'No Name',
+                lastMessage: lastMessage?.message || 'No messages',
+              };
+            }
+          })
+          .filter(Boolean);
+
+        const mergedChats = await ChatSettingsService.mergeChatsWithPreferences(
+          telegramChats
+        );
+
         return {
-          id: chat?.id,
-          name: chat?.lastName ? chat?.firstName + " " + chat?.lastName : chat?.firstName || 'No Name', // Use title or username
-          lastMessage: lastMessage?.message || 'No messages', // Last message text
+          sessionId,
+          phoneNumber,
+          chats: mergedChats,
         };
-      }
-    });
+      })
+    );
 
-    const mergedChats = await ChatSettingsService.mergeChatsWithPreferences(telegramChats);
-    res.status(200).json(mergedChats);
-    return
+    res.status(200).json(sessionsWithChats);
+    return;
   } catch (error) {
     console.error('Error in GET /chats:', error);
     res.status(500).json({ error: 'Failed to retrieve chats with preferences' });
-    return
+    return;
   }
 });
 
 /**
  * Route: Toggle a Chat's Auto-Reply Preference
  * Method: PATCH
- * Body: { chatId: string, isAutoReplyOn: boolean }
+ * Body: { chatId: string, isAutoReplyOn: boolean, sessionId: string }
  */
 router.patch('/:chatId/preference', authenticateToken, async (req, res) => {
   const { chatId } = req.params;
-  const { isAutoReplyOn } = req.body;
+  const { isAutoReplyOn, sessionId } = req.body;
 
   if (typeof isAutoReplyOn !== 'boolean') {
     res.status(400).json({ error: 'isAutoReplyOn must be a boolean' });
-    return 
+    return;
   }
 
   try {
-    const updatedSettings = await ChatSettingsService.upsertChatSettings(chatId, { isAutoReplyOn });
+    const updatedSettings = await ChatSettingsService.upsertChatSettings(
+      chatId,
+      Number(sessionId),
+      { sessionId, isAutoReplyOn },
+    );
 
     res.status(200).json(updatedSettings);
-    return
+    return;
   } catch (error) {
     console.error('Error in PATCH /chats/:chatId/preference:', error);
     res.status(500).json({ error: 'Failed to update preference' });
-    return
+    return;
   }
 });
 
-
-export default router
+export default router;

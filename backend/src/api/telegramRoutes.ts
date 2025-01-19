@@ -1,60 +1,87 @@
-import express from 'express';
-import { setOtpCode, createTelegramClient, isSessionValid, globalClient } from '../services/telegramService';  // Assuming telegramService is your file
-import { AuthenticatedRequest, authenticateToken } from '../middleware/authMiddleware'
-import { Dialog } from 'telegram/tl/custom/dialog';
+import express, { Request, Response } from 'express';
+import {
+    initTelegramLogin,
+    verifyTelegramOtp,
+    loadSession,
+    removeSession,
+} from '../services/telegramService'; // Adjust the path as needed
+import prisma from '../utils/prismaClient';
 
 const router = express.Router();
 
-// Route to start the authentication process
-router.post('/auth/start', async (req, res) => {
-  const { phone, password } = req.body;
+// /auth/start
+router.post('/start', async (req: Request, res: Response) => {
+    const { phone, password } = req.body;
 
-
-  console.log(phone, password)
-  try {
-    createTelegramClient(phone, password);
-    res.json({ message: 'OTP sent, waiting for code' });
-  } catch (error) {
-    console.error('Error starting authentication:', error);
-    res.status(500).json({ message: 'Error during authentication start' });
-  }
-});
-
-// Route to verify the OTP code
-router.post('/auth/verify', (req, res) => {
-  const { phone, code } = req.body;
-  try {
-    setOtpCode(code);  // This will resolve the OTP Promise
-    res.json({ message: 'Verification successful, check if password is required' });
-  } catch (error) {
-    console.error('Error verifying OTP:', error);
-    res.status(500).json({ message: 'Error during verification' });
-  }
-});
-
-
-// Route to check if session exists and is valid
-router.post('/auth/session-status', async (req, res) => {
-    const { phone } = req.body;
-
-    if (!phone) {
-      res.status(400).json({ message: 'Phone number is required' });
-      return
-    }
-  
     try {
-      const sessionValid = await isSessionValid(phone as string);
-      if (sessionValid) {
-        res.json({ valid: true });
-      } else {
-        res.status(401).json({ message: 'Session is invalid or expired' });
-      }
+        await initTelegramLogin(phone);
+        res.status(200).send({ message: 'OTP sent to your phone.' });
     } catch (error) {
-      console.error('Error during session validation:', error);
-      res.status(500).json({ message: 'Error checking session' });
+        console.error('Error initiating Telegram login:', error);
+        res.status(500).send({ error: 'Failed to send OTP.' });
     }
-  });
+});
+
+// /auth/verify
+router.post('/verify', async (req: Request, res: Response) => {
+    const { phone, password, code } = req.body;
+
+    try {
+        await verifyTelegramOtp(phone, code, password);
+        res.status(200).send({ message: 'Session verified and saved.' });
+    } catch (error) {
+        console.error('Error verifying Telegram OTP:', error);
+        res.status(500).send({ error: 'Failed to verify OTP.' });
+    }
+});
+
+// /auth/session-status
+// router.get('/session-status', async (req: Request, res: Response) => {
+//     const { userId, phoneNumber } = req.query;
+
+//     try {
+//         const client = await loadSession(userId as string, phoneNumber as string);
+//         if (client && await isSessionValid(client)) {
+//             res.status(200).send({ valid: true });
+//         } else {
+//             res.status(200).send({ valid: false });
+//         }
+//     } catch (error) {
+//         console.error('Error checking session status:', error);
+//         res.status(500).send({ error: 'Failed to check session status.' });
+//     }
+// });
+
+// /auth/remove-session
+router.post('/remove-session', async (req: Request, res: Response) => {
+    const { userId, phoneNumber } = req.body;
+
+    try {
+        removeSession(phoneNumber);
+        res.status(200).send({ message: 'Session removed.' });
+    } catch (error) {
+        console.error('Error removing session:', error);
+        res.status(500).send({ error: 'Failed to remove session.' });
+    }
+});
 
 
+// /auth/sessions
+router.get('/sessions', async (req: Request, res: Response) => {
+    try {
+        const sessions = await prisma.session.findMany();
+
+    if (sessions.length === 0) {
+      console.warn('No sessions found in the database. Skipping initialization.');
+      res.status(404).send({msg: "no sessions"});
+      return
+    }   
+
+        res.status(200).send(sessions);
+    } catch (error) {
+        console.error('Error retrieving sessions:', error);
+        res.status(500).send({ error: 'Failed to retrieve sessions.' });
+    }
+});
 
 export default router;

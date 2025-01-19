@@ -1,126 +1,118 @@
-import { TelegramClient } from 'telegram';
-import { StringSession } from 'telegram/sessions';
-import fs from 'fs';
-import path from 'path';
-import { startListeningForMessages } from './telegramEvents';
-import { TELEGRAM_API_HASH, TELEGRAM_API_ID } from '../server';
+import { TelegramClient } from "telegram";
+import { StringSession } from "telegram/sessions";
+import { TELEGRAM_API_HASH, TELEGRAM_API_ID } from "../server";
+import { PrismaClient } from "@prisma/client";
+import { startListeningForMessages } from "./telegramEvents";
 
-const SESSION_DIR = path.join(__dirname, 'sessions');
+const prisma = new PrismaClient();
 
-// Ensure the session directory exists
-if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR);
+// Store active clients globally
+export const globalClients: Record<string, TelegramClient> = {};
 
-let globalClient: TelegramClient | null = null; // In-memory storage for the client
-let otpRequest: { resolve: (value: string) => void; reject: (reason?: any) => void } | null = null;
-
-// Export globalClient for use in other modules
-export { globalClient };
-
-/**
- * Initialize a Telegram client using a session or login credentials.
- */
-export async function createTelegramClient(
-  phone: string,
-  password?: string
-): Promise<TelegramClient> {
-  if (globalClient) {
-    console.log('Using existing client');
-    return globalClient;
-  }
-
-  const stringSession = loadSessionAsStringSession(phone);
-  const client = new TelegramClient(stringSession, parseInt(TELEGRAM_API_ID), TELEGRAM_API_HASH, {});
- 
-  try {
-    await client.start({
-      phoneNumber: phone,
-      phoneCode: () =>
-        new Promise<string>((resolve, reject) => {
-          otpRequest = { resolve, reject };
-        }),
-      password: () => Promise.resolve(password || ''),
-      onError: (err) => console.error('Error during login:', err),
+// Helper to create a new Telegram client
+const createClient = (sessionString: string): TelegramClient => {
+    const session = new StringSession(sessionString);
+    const client = new TelegramClient(session, TELEGRAM_API_ID, TELEGRAM_API_HASH, {
+        connectionRetries: 5,
     });
 
-    globalClient = client; // Cache the authenticated client
-    await saveSession(phone, client.session.save()!); // Persist the session
-
-    const loginMessage = `Login at ${formatDate(new Date())} was successful`;
-    await client.sendMessage('me', { message: loginMessage });
-
-    console.log('Telegram client authenticated successfully');
-    startListeningForMessages(client);
-
     return client;
-  } catch (error) {
-    console.error('Authentication failed:', error);
-    throw error;
-  }
-}
+};
 
-/**
- * Submit the OTP code received during authentication.
- */
-export function setOtpCode(code: string): void {
-  if (otpRequest) {
-    otpRequest.resolve(code);
-    otpRequest = null;
-  } else {
-    console.error('No pending OTP request to resolve');
-  }
-}
+// Initialize Telegram Login
+export const initTelegramLogin = async (phoneNumber: string): Promise<void> => {
+    const client = createClient("");
+    await client.connect();
 
-/**
- * Verify if a session for the given phone number is valid.
- */
-export async function isSessionValid(phone: string): Promise<boolean> {
-  const sessionData = loadSession(phone);
-  if (!sessionData) return false;
+    globalClients[phoneNumber] = client;
 
-  try {
-    // Reuse the main `createTelegramClient` function to validate the session
-    const client = await createTelegramClient(phone);
-    await client.connect(); // Attempt to connect using the session
-    return true;
-  } catch (error) {
-    console.error('Session validation failed:', error);
-    return false;
-  }
-}
+    await client.sendCode(
+        {
+            apiId: TELEGRAM_API_ID,
+            apiHash: TELEGRAM_API_HASH,
+        },
+        phoneNumber
+    );
 
-/**
- * Load a session from disk for a given phone number.
- */
-function loadSession(phone?: string): string | null {
-  if (!phone) return null;
-  const sessionFilePath = path.join(SESSION_DIR, `${phone}_session.json`);
-  if (fs.existsSync(sessionFilePath)) {
-    return fs.readFileSync(sessionFilePath, 'utf-8');
-  }
-  return null;
-}
+    console.log("Telegram login initialized: OTP sent.");
+};
 
-/**
- * Convert session data to a StringSession object.
- */
-function loadSessionAsStringSession(phone?: string): StringSession {
-  const sessionData = loadSession(phone);
-  return new StringSession(sessionData || '');
-}
+// Verify OTP and Save Session to Database
+export const verifyTelegramOtp = async (
+    phoneNumber: string,
+    otp: string,
+    password: string
+): Promise<void> => {
+    const client = globalClients[phoneNumber];
 
-/**
- * Save a session to disk.
- */
-function saveSession(phone?: string, sessionData?: string): void {
-  if (!phone || !sessionData) return;
-  const sessionFilePath = path.join(SESSION_DIR, `${phone}_session.json`);
-  fs.writeFileSync(sessionFilePath, sessionData, 'utf-8');
-}
+    if (!client) {
+        throw new Error("Client not found for phone number: " + phoneNumber);
+    }
 
-/**
- * Format a date into a human-readable string.
- */
-function formatDate(date: Date): string {
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
+    await client.start({
+        phoneNumber: phoneNumber,
+        password: async () => password, // Handle passwords if 2FA is enabled
+        phoneCode: async () => otp,
+        onError: (err: any) => console.error("Telegram Error:", err),
+    });
+
+    const sessionString = String(client.session.save());
+
+    // Save session to the database
+    await prisma.session.upsert({
+        where: {
+            phoneNumber: phoneNumber,
+        },
+        update: {
+            sessionData: sessionString,
+            password: password,
+        },
+        create: {
+            phoneNumber: phoneNumber,
+            password: password,
+            sessionData: sessionString,
+        },
+    });
+
+    console.log("Session saved for phone:", phoneNumber);
+    startListeningForMessages(client);
+};
+
+// Load Session from Database
+export const loadSession = async (
+    phoneNumber: string
+): Promise<TelegramClient | null> => {
+    const sessionRecord = await prisma.session.findUnique({
+        where: { phoneNumber: phoneNumber },
+    });
+
+    if (!sessionRecord) {
+        console.log("No session found for phone:", phoneNumber);
+        return null;
+    }
+
+    const client = createClient(sessionRecord.sessionData);
+
+    await client.connect();
+
+    globalClients[phoneNumber] = client;
+
+    console.log("Session loaded for phone:", phoneNumber);
+    return client;
+};
+
+// Disconnect and Remove Session from Database
+export const removeSession = async (phoneNumber: string): Promise<void> => {
+    const client = globalClients[phoneNumber];
+
+    if (client) {
+        await client.disconnect();
+        delete globalClients[phoneNumber];
+    }
+
+    await prisma.session.delete({
+        where: { phoneNumber: phoneNumber },
+    });
+
+    console.log("Session removed for phone:", phoneNumber);
+};

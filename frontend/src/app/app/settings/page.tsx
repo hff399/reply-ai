@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { Settings, MessageCircleMore } from 'lucide-react';
@@ -28,7 +28,6 @@ const SettingsPage = () => {
   const [chatName, setChatName] = useState('');
   
   useEffect(() => {
-    if (typeof window === "undefined") return;
     kyClient
     .get('settings/global')
     .json<BotPreferences>()
@@ -47,7 +46,6 @@ const SettingsPage = () => {
   }
   const handleUpdateGlobal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (typeof window === "undefined") return;
     if (globalSettings) {
       try {
         const updatedSettings = kyClient
@@ -198,107 +196,159 @@ const SettingsPage = () => {
               onChange={(e) => setChatName(e.target.value)}
               className="mb-4"
             />
-            <ChatList searchQuery={chatName} />
+            <ChatList />
           </div>
         </Card>
       </div>
     </div>
   );
 };
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+import ky from "ky"; // Or your preferred HTTP client
 
 interface Chat {
   id: string;
   name: string;
   lastMessage: string;
   preferences: {
-    isAutoReplyOn: boolean
-  }; // Add any other fields relevant to the chats
+    isAutoReplyOn: boolean;
+  };
 }
 
-const ChatList = ({ searchQuery }: { searchQuery: string }) => {
-  const [chats, setChats] = useState<Chat[]>([]);
+interface SessionWithChats {
+  phoneNumber: string;
+  sessionId: string;
+  chats: Chat[];
+}
+
+const ChatList = () => {
+  const [sessions, setSessions] = useState<SessionWithChats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSession, setSelectedSession] = useState<SessionWithChats | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const fetchChats = async () => {
+    const fetchSessions = async () => {
       try {
-        const data: Chat[] = await kyClient.get('chats').json();
-        console.log(data)
-        setChats(data);
+        const data: SessionWithChats[] = await kyClient.get("chats").json();
+        console.log(data);
+        setSessions(data);
       } catch (err) {
-        console.error('Failed to fetch chats:', err);
-        setError('Unable to load chats. Please try again later.');
+        console.error("Failed to fetch sessions:", err);
+        setError("Unable to load sessions. Please try again later.");
       } finally {
         setIsLoading(false);
       }
     };
-    fetchChats();
+    fetchSessions();
   }, []);
 
-  const togglePreference = async (chatId: string) => {
-    const updatedChats = chats.map(chat =>
-      chat.id === chatId ? { ...chat, preferences: {...chat.preferences, isAutoReplyOn: !chat.preferences.isAutoReplyOn} } : chat
+  const togglePreference = async (chatId: string, sessionId: string) => {
+    const updatedSessions = sessions.map((session) =>
+      session.phoneNumber === sessionId
+        ? {
+            ...session,
+            chats: session.chats.map((chat) =>
+              chat.id === chatId
+                ? {
+                    ...chat,
+                    preferences: {
+                      ...chat.preferences,
+                      isAutoReplyOn: !chat.preferences.isAutoReplyOn,
+                    },
+                  }
+                : chat
+            ),
+          }
+        : session
     );
-    setChats(updatedChats); // Optimistic update
+    setSessions(updatedSessions);
 
     try {
-      if (typeof window === "undefined") return;
       await kyClient.patch(`chats/${chatId}/preference`, {
-        json: { isAutoReplyOn: updatedChats.find(chat => chat.id === chatId)?.preferences.isAutoReplyOn },
+        json: {
+          isAutoReplyOn: updatedSessions
+            .find((session) => session.phoneNumber === sessionId)
+            ?.chats.find((chat) => chat.id === chatId)?.preferences.isAutoReplyOn,
+            phoneNumber: selectedSession?.phoneNumber,
+            sessionId: selectedSession?.sessionId
+        },
       });
     } catch (err) {
-      console.error('Failed to toggle preference:', err);
-      setChats(chats); // Revert on failure
+      console.error("Failed to toggle preference:", err);
+      setSessions(sessions);
     }
   };
 
-  const filteredChats = chats.filter(chat =>
-    chat.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredChats =
+    selectedSession?.chats.filter(
+      (chat) =>
+        chat.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        chat.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+    ) || [];
 
   return (
-    <div className="overflow-y-scroll overflow-x-hidden no-scrollbar max-h-[380px]">
+    <div>
       {isLoading ? (
-          <>
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          <Skeleton className="h-10 mb-4" />
-          </>
-        
+        <p>Loading...</p>
       ) : error ? (
         <p className="text-red-500">{error}</p>
-      ) : filteredChats.length > 0 ? (
-        filteredChats.map(chat => (
-          <div
-            key={chat.id}
-            className="flex items-center justify-between p-2 border-b"
-          >
-            <div>
-              <div className="font-semibold text-sm">{chat.name}</div>
-              <div className="text-sm text-gray-500 max-w-[250px] truncate">
-                {chat.lastMessage || 'No recent messages'}
-              </div>
-            </div>
-            <Switch
-              checked={chat.preferences.isAutoReplyOn}
-              onClick={() => togglePreference(chat.id)}
-            />
-          </div>
-        ))
       ) : (
-        <p>No chats found.</p>
+        <div className="space-y-4">
+          {sessions.map((session) => (
+            <Card key={session.phoneNumber}>
+              <CardHeader>
+                <CardTitle>{session.phoneNumber}</CardTitle>
+                <Button onClick={() => setSelectedSession(session)}>
+                  View Chats
+                </Button>
+              </CardHeader>
+            </Card>
+          ))}
+
+          {selectedSession && (
+            <Dialog open={!!selectedSession} onOpenChange={() => setSelectedSession(null)}>
+              <DialogContent className="max-h-[80%] max-w-[540px] overflow-y-scroll no-scrollbar">
+                <DialogHeader className='max-w-full'>
+                  <DialogTitle>Chats for {selectedSession.phoneNumber}</DialogTitle>
+                </DialogHeader>
+                <Input
+                  placeholder="Search chats..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="mb-4 max-w-full"
+                />
+                <CardContent className='max-w-[540px]'>
+                  {filteredChats.length > 0 ? (
+                    filteredChats.map((chat) => (
+                      <div key={chat.id} className="flex items-center max-w-full justify-between py-2 border-b">
+                        <div>
+                          <div className="font-semibold text-sm">{chat.name}</div>
+                          <div className="text-gray-500 text-sm truncate max-w-[400px]">{chat.lastMessage}</div>
+                        </div>
+                        <Switch
+                          checked={chat.preferences.isAutoReplyOn}
+                          onCheckedChange={() => {
+                            togglePreference(chat.id, selectedSession.phoneNumber)
+                            chat.preferences.isAutoReplyOn = !chat.preferences.isAutoReplyOn
+                          }}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <p>No chats match your search.</p>
+                  )}
+                </CardContent>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       )}
     </div>
   );
 };
+
 
 export default SettingsPage;

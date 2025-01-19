@@ -15,6 +15,18 @@ model User {
   updatedAt         DateTime        @updatedAt
 }
 
+model Session {
+  id                Int             @id @default(autoincrement())
+  phoneNumber       String          @unique // Phone number associated with the session
+  password          String          // Password for the session
+  sessionData       String          // Serialized Telegram session data
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relation to ChatSettings
+  chatSettings      ChatSettings[]
+}
+
 model BotPreferences {
   id                Int             @id @default(autoincrement())
   isOn              Boolean         @default(true)   // Global bot on/off toggle
@@ -30,23 +42,24 @@ model BotPreferences {
 
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
-
-  // Relation to ChatSettings
-  chatSettings      ChatSettings[]  @relation("BotPreferencesToChatSettings")
 }
 
 model ChatSettings {
   id                Int             @id @default(autoincrement())
-  chatId            String          @unique // Unique identifier for each chat
-  botPreferencesId  Int?            // Reference to the BotPreferences model (optional if some chats have custom settings)
-  customPrompt      String?         // Specific prompt for this chat (overrides general prompt if set)
-  isAutoReplyOn     Boolean         @default(false)   // Is auto-reply enabled for this chat
-  responseDelay     Int?            // Custom response delay for this chat
+  chatId            String          // Chat ID from Telegram or another source
+  botPreferencesId  Int?            // Reference to the BotPreferences model (optional)
+  customPrompt      String?         // Custom prompt for this chat (overrides general prompt)
+  isAutoReplyOn     Boolean         @default(false)   // Auto-reply toggle
+  responseDelay     Int?            // Custom response delay
+  sessionId         Int             // Foreign key to Session
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
   // Relations
-  botPreferences    BotPreferences? @relation("BotPreferencesToChatSettings", fields: [botPreferencesId], references: [id])
+  session           Session         @relation(fields: [sessionId], references: [id])
+
+  // Composite unique constraint
+  @@unique([chatId, sessionId])
 }
 
 model Analytics {
